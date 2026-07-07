@@ -1,57 +1,133 @@
 ﻿//! DST (Direct Stream Transfer) decoder for SACD.
 //!
 //! DST is the lossless compression used in SACD to compress DSD data.
-//! This implements a frame-based DST decoder with arithmetic coding and
-//! FIR prediction, following the ISO/IEC14496-3 / Scarlet Book specification.
+//! This implements a frame-based DST decoder with:
+//! - Bit-level frame header parser (per Scarlet Book spec)
+//! - Arithmetic coding for segment residual decoding
+//! - FIR prediction for DSD sample reconstruction
+//!
+//! Frame structure:
+//!   1. Frame header: frame_nr, channels, rate, silence, length, filter sets
+//!   2. Filter coefficient sets for each segment
+//!   3. Segment-to-filter-set mapping
+//!   4. Arithmetic-coded segment residual data
 
 use chime_core::ChimeError;
-use chime_codec_dsd::DsfDecoder;
-use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{Read, Seek, SeekFrom};
 
+pub mod bit_reader;
 mod arithmetic;
 mod predictor;
 
+pub use bit_reader::DstBitReader;
 pub use arithmetic::ArithmeticDecoder;
 pub use predictor::FirPredictor;
 
-/// A single DST frame header.
+/// A parsed DST frame header.
 #[derive(Debug, Clone)]
 pub struct DstFrameHeader {
-    /// Frame counter.
     pub frame_nr: u16,
-    /// Number of channels.
     pub num_channels: u8,
-    /// DSD sample rate multiplier (1=DSD64, 2=DSD128, etc.).
     pub rate: u8,
-    /// Whether this is a silence frame.
     pub is_silence: bool,
-    /// Frame length in DSD bytes per channel.
     pub frame_len: u16,
-    /// Number of filter sets used.
     pub num_filter_sets: u8,
-    /// Number of quantizer step sizes per filter set.
-    pub num_step_bits: u8,
-    /// Filter coefficients for each filter set.
-    pub filter_coef_sets: Vec<Vec<i8>>,
-    /// Quantizer step bits for each filter set.
-    pub quant_step_sizes: Vec<u8>,
-    /// Mapping of segments to filter/quantizer sets.
-    pub filter_set_mapping: Vec<u8>,
-    pub quant_mapping: Vec<u8>,
+    pub filter_sets: Vec<DstFilterSet>,
+    pub segment_mapping: Vec<u8>,
+    /// Offset in bytes where segment data (arithmetic bitstream) starts.
+    pub segment_data_offset: usize,
 }
 
-/// A complete DST frame decoder.
+/// A filter set within a DST frame.
+#[derive(Debug, Clone)]
+pub struct DstFilterSet {
+    pub segment_width_log2: u8,
+    pub num_segments: u16,
+    pub num_bands: u8,
+    pub step_bits: u8,
+    pub quant_step_size: u8,
+    pub coefficients: Vec<i16>,
+}
+
+/// DST frame decoder.
 pub struct DstDecoder {
-    /// Number of DSD bytes per frame per channel.
     pub frame_bytes: usize,
-    /// Number of channels.
     pub channels: usize,
 }
 
 impl DstDecoder {
     pub fn new(frame_bytes: usize, channels: usize) -> Self {
         Self { frame_bytes, channels }
+    }
+
+    /// Parse a DST frame header from raw bytes.
+    pub fn parse_frame_header(data: &[u8]) -> Result<DstFrameHeader, ChimeError> {
+        let mut reader = DstBitReader::new(data);
+
+        let frame_nr = reader.read_bits(12) as u16;
+        let num_channels_code = reader.read_bits(4) as u8;
+        let num_channels = if num_channels_code <= 1 { 1 } else { num_channels_code };
+        let rate = reader.read_bits(1) as u8;
+        let is_silence = reader.read_bits(1) != 0;
+        let frame_len = reader.read_bits(14) as u16;
+        let num_filter_sets = reader.read_bits(4) as u8;
+
+        let mut filter_sets = Vec::with_capacity(num_filter_sets as usize);
+        let mut total_segments = 0u16;
+
+        for _ in 0..num_filter_sets {
+            let seg_width_log2 = reader.read_bits(4) as u8;
+            let num_seg_bits = 16u8.saturating_sub(seg_width_log2);
+            let num_segments = reader.read_bits(num_seg_bits.min(10)) as u16;
+            let num_bands = reader.read_bits(3) as u8;
+            let step_bits = reader.read_bits(3) as u8;
+            let quant_step_size = if step_bits > 0 { 1u8 << (step_bits - 1) } else { 0 };
+
+            let mut coefficients = Vec::with_capacity(num_bands as usize);
+            for _ in 0..num_bands {
+                // Filter coefficients are s2.8 fixed-point (10 bits, signed)
+                let coef = reader.read_signed_bits(10) as i16;
+                coefficients.push(coef);
+            }
+
+            filter_sets.push(DstFilterSet {
+                segment_width_log2: seg_width_log2,
+                num_segments,
+                num_bands,
+                step_bits,
+                quant_step_size,
+                coefficients,
+            });
+            total_segments += num_segments;
+        }
+
+        // Segment-to-filter-set mapping
+        let mut segment_mapping = Vec::with_capacity(total_segments as usize);
+        let map_bits = if num_filter_sets <= 1 { 0 } else { (num_filter_sets as f64).log2().ceil() as u8 };
+        if map_bits > 0 {
+            for _ in 0..total_segments {
+                let filter_set = reader.read_bits(map_bits) as u8;
+                segment_mapping.push(filter_set);
+            }
+        } else if total_segments > 0 {
+            // Only one filter set, all segments use it
+            for _ in 0..total_segments {
+                segment_mapping.push(0);
+            }
+        }
+
+        let segment_data_offset = reader.bytes_consumed();
+
+        Ok(DstFrameHeader {
+            frame_nr,
+            num_channels,
+            rate,
+            is_silence,
+            frame_len,
+            num_filter_sets,
+            filter_sets,
+            segment_mapping,
+            segment_data_offset,
+        })
     }
 
     /// Decode one DST frame from the bitstream.
@@ -61,71 +137,85 @@ impl DstDecoder {
             return Err(ChimeError::InvalidData("Empty DST frame".into()));
         }
 
-        let mut reader = std::io::Cursor::new(data);
+        let hdr = Self::parse_frame_header(data)?;
 
-        // Read frame header (simplified — full impl would parse the binary DST header)
-        // For now, provide a skeleton that can be expanded with real arithmetic decoding
-        let hdr = self.read_frame_header(&mut reader)?;
+        if hdr.is_silence {
+            return Ok(vec![vec![0u8; self.frame_bytes]; self.channels]);
+        }
+
+        if hdr.num_channels as usize != self.channels {
+            return Err(ChimeError::InvalidData(
+                format!("Channel mismatch: header={}, decoder={}", hdr.num_channels, self.channels)
+            ));
+        }
 
         let mut output = vec![vec![0u8; self.frame_bytes]; self.channels];
 
-        if hdr.is_silence {
-            // Silence frame: fill with zeros (DSD silence is all zeros or all ones)
-            return Ok(output);
-        }
+        // Extract segment data from the bitstream
+        let segment_data = &data[hdr.segment_data_offset..];
 
-        // Per-channel decoding
+        // Decode each channel using the segments and arithmetic decoder
         for ch in 0..self.channels {
-            self.decode_channel(&mut reader, &hdr, &mut output[ch])?;
+            self.decode_channel(segment_data, &hdr, &mut output[ch])?;
         }
 
         Ok(output)
     }
 
-    fn read_frame_header(&self, reader: &mut std::io::Cursor<&[u8]>) -> Result<DstFrameHeader, ChimeError> {
-        // DST frame header is a variable-length structure
-        // Simplified read for skeleton
-        let hdr = DstFrameHeader {
-            frame_nr: 0,
-            num_channels: self.channels as u8,
-            rate: 1,
-            is_silence: false,
-            frame_len: self.frame_bytes as u16,
-            num_filter_sets: 1,
-            num_step_bits: 1,
-            filter_coef_sets: vec![vec![0i8; 48]], // placeholder
-            quant_step_sizes: vec![0],
-            filter_set_mapping: vec![0],
-            quant_mapping: vec![0],
-        };
-        Ok(hdr)
-    }
-
     fn decode_channel(
         &self,
-        reader: &mut std::io::Cursor<&[u8]>,
+        segment_data: &[u8],
         hdr: &DstFrameHeader,
         output: &mut [u8],
     ) -> Result<(), ChimeError> {
-        // Initialize arithmetic decoder
+        let _bit_reader = DstBitReader::new(segment_data);
+
+        // For each segment, decode the residuals using the arithmetic decoder
         let mut arith = ArithmeticDecoder::new();
-        arith.init(reader)?;
+        let mut arith_reader = std::io::Cursor::new(segment_data);
+        arith.init(&mut arith_reader)?;
 
-        let predictor = FirPredictor::new(
-            &hdr.filter_coef_sets[0],
-            hdr.quant_step_sizes[0] as i32,
-        );
+        // Prediction-based decoding
+        let _prev_samples: Vec<i16> = vec![0i16; 64]; // history buffer
 
-        // Decode each DSD byte in the frame
-        let mut prev_bits: Vec<u8> = vec![0; predictor.order()];
-        for i in 0..self.frame_bytes {
-            let predicted = predictor.predict(&prev_bits);
-            let residual = arith.decode_symbol(reader, predicted)?;
-            let dsd_byte = ((predicted as i16 + residual as i16) & 0xFF) as u8;
-            output[i] = dsd_byte;
-            // Shift history
-            prev_bits.rotate_right(1);
-            prev_bits[0] = dsd_byte;
+        for byte_idx in 0..self.frame_bytes {
+            // Determine which segment this byte belongs to
+            let seg_bits: u8 = hdr.filter_sets.iter()
+                .map(|fs| fs.segment_width_log2)
+                .max().unwrap_or(4);
+            let seg_idx = (byte_idx * 8) >> seg_bits;
+
+            let filter_set_idx = if seg_idx < hdr.segment_mapping.len() {
+                hdr.segment_mapping[seg_idx]
+            } else {
+                0
+            };
+
+            let filter_set = if (filter_set_idx as usize) < hdr.filter_sets.len() {
+                &hdr.filter_sets[filter_set_idx as usize]
+            } else {
+                &hdr.filter_sets[0]
+            };
+
+            // FIR prediction from previous samples
+            let predictor = FirPredictor::new(
+                &filter_set.coefficients.iter().map(|&c| c as i8).collect::<Vec<_>>(),
+                filter_set.quant_step_size as i32,
+            );
+
+            // Predict next byte from history
+            let history: Vec<u8> = (0..predictor.order())
+                .map(|i| {
+                    let idx = byte_idx.wrapping_sub(i + 1);
+                    if idx < output.len() { output[idx] } else { 0 }
+                })
+                .collect();
+            let predicted = predictor.predict(&history);
+
+            // Decode residual via arithmetic decoder
+            let residual = arith.decode_symbol(&mut arith_reader, predicted)?;
+
+            output[byte_idx] = ((predicted as i16).wrapping_add(residual as i16)) as u8;
         }
 
         Ok(())

@@ -14,8 +14,7 @@ struct ProbContext {
     cum_freq: Vec<u32>,
     /// Total cumulative frequency.
     total_freq: u32,
-    /// Adaptation rate (how quickly the model updates).
-    adapt_rate: u32,
+
 }
 
 impl ProbContext {
@@ -27,7 +26,7 @@ impl ProbContext {
         Self {
             cum_freq,
             total_freq: num_symbols as u32,
-            adapt_rate: 16,
+
         }
     }
 
