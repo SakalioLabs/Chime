@@ -3,6 +3,8 @@
 pub mod dsd_to_pcm;
 pub mod filters;
 pub mod polyphase;
+pub mod resampler;
+pub use resampler::{SampleRateConverter, SrcQuality};
 pub mod streaming;
 
 pub use dsd_to_pcm::{DsdToPcmConverter, DsdPcmConfig};
