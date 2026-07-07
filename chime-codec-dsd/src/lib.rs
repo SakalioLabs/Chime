@@ -10,6 +10,8 @@ use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
 pub mod sacd_iso;
+pub mod audio_frame;
+pub use audio_frame::{parse_audio_frames, process_audio_frames, SacdAudioFrame, SacdFrameType};
 pub use sacd_iso::{SacdIsoParser, SacdMasterToc, SacdAreaToc, SacdTrack, SacdChannelType};
 
 // ─── DSF Format ─────────────────────────────────────────────
