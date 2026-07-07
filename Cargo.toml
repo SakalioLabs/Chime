@@ -1,0 +1,36 @@
+﻿[workspace]
+resolver = "2"
+members = [
+    "chime-core",
+    "chime-codec-pcm",
+    "chime-codec-dsd",
+    "chime-codec-dst",
+    "chime-dsp",
+    "chime-output",
+    "chime-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Core
+thiserror = "2"
+tracing = "0.1"
+# Buffer management
+bytes = "1"
+# Async
+tokio = { version = "1", features = ["full"] }
+# Audio output
+cpal = "0.15"
+# CLI
+clap = { version = "4", features = ["derive"] }
+# Math / DSP
+num-traits = "0.2"
+# Logging
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+# Byte order
+byteorder = "1"

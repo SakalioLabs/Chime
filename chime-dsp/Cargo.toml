@@ -1,0 +1,12 @@
+﻿[package]
+name = "chime-dsp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DSP processing: DSD-to-PCM conversion, sample rate conversion"
+
+[dependencies]
+chime-core = { path = "../chime-core" }
+thiserror.workspace = true
+tracing.workspace = true
+num-traits.workspace = true

@@ -1,0 +1,13 @@
+﻿[package]
+name = "chime-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Core audio types, traits, and pipeline abstractions for Chime"
+
+[dependencies]
+thiserror.workspace = true
+tracing.workspace = true
+bytes.workspace = true
+num-traits.workspace = true
+byteorder.workspace = true

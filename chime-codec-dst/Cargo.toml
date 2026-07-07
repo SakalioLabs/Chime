@@ -1,0 +1,13 @@
+﻿[package]
+name = "chime-codec-dst"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DST (Direct Stream Transfer) decoder for SACD"
+
+[dependencies]
+chime-core = { path = "../chime-core" }
+chime-codec-dsd = { path = "../chime-codec-dsd" }
+thiserror.workspace = true
+tracing.workspace = true
+byteorder.workspace = true

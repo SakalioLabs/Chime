@@ -1,0 +1,12 @@
+﻿[package]
+name = "chime-codec-pcm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "PCM audio decoder (WAV, AIFF, raw PCM)"
+
+[dependencies]
+chime-core = { path = "../chime-core" }
+thiserror.workspace = true
+tracing.workspace = true
+byteorder.workspace = true

@@ -1,0 +1,12 @@
+﻿[package]
+name = "chime-codec-dsd"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "DSD audio decoder (DFF/DSDIFF, DSF, SACD ISO)"
+
+[dependencies]
+chime-core = { path = "../chime-core" }
+thiserror.workspace = true
+tracing.workspace = true
+byteorder.workspace = true

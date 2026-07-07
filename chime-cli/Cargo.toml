@@ -1,0 +1,22 @@
+﻿[package]
+name = "chime-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Chime CLI audio player"
+
+[[bin]]
+name = "chime"
+path = "src/main.rs"
+
+[dependencies]
+chime-core = { path = "../chime-core" }
+chime-codec-pcm = { path = "../chime-codec-pcm" }
+chime-codec-dsd = { path = "../chime-codec-dsd" }
+chime-codec-dst = { path = "../chime-codec-dst" }
+chime-dsp = { path = "../chime-dsp" }
+chime-output = { path = "../chime-output" }
+thiserror.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+clap.workspace = true
