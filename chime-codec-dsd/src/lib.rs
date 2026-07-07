@@ -9,6 +9,9 @@ use chime_core::{ChimeError, DsdInfo, StreamInfo};
 use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
 use std::io::{Read, Seek, SeekFrom};
 
+pub mod sacd_iso;
+pub use sacd_iso::{SacdIsoParser, SacdMasterToc, SacdAreaToc, SacdTrack, SacdChannelType};
+
 // ─── DSF Format ─────────────────────────────────────────────
 
 /// DSF file header
