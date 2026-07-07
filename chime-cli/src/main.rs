@@ -11,7 +11,7 @@ use chime_codec_dsd::{DsfDecoder, DffDecoder};
 use chime_dsp::DsdToPcmConverter;
 use chime_output::{AudioOutput, OutputConfig};
 use std::fs::File;
-use std::io::{BufReader, Read, Seek};
+use std::io::{BufReader, Seek};
 use std::path::Path;
 
 #[derive(Parser, Debug)]
