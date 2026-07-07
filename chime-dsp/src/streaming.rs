@@ -32,7 +32,6 @@ fn fast_tanh(x: f32) -> f32 {
 
 /// Streaming DSD-to-PCM converter state.
 pub struct StreamingDsdToPcm {
-    _
     target_rate: u32,
     channels: u16,
     dec_filter: DecimationFilter,
@@ -47,8 +46,8 @@ pub struct StreamingDsdToPcm {
 }
 
 impl StreamingDsdToPcm {
-    pub fn new(_ target_rate: u32, channels: u16) -> Self {
-        let dec_filter = DecimationFilter::design( target_rate);
+    pub fn new(dsd_rate: u32, target_rate: u32, channels: u16) -> Self {
+        let dec_filter = DecimationFilter::design(dsd_rate, target_rate);
         let ch = channels as usize;
         StreamingDsdToPcm {
             
