@@ -7,6 +7,9 @@ use chime_core::sample::SampleFormat;
 use chime_core::buffer::AudioBuffer;
 use chime_core::{ChimeError, PcmInfo, StreamInfo};
 use byteorder::{LittleEndian, ReadBytesExt};
+pub mod aiff;
+pub use aiff::AiffDecoder;
+
 use std::io::{Read, Seek, SeekFrom};
 
 /// WAV format codes

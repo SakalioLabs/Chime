@@ -6,7 +6,7 @@ use clap::Parser;
 use chime_core::codec::{AudioCodec, AudioData};
 use chime_core::buffer::AudioBuffer;
 use chime_core::ChimeError;
-use chime_codec_pcm::WavDecoder;
+use chime_codec_pcm::{WavDecoder, AiffDecoder};
 use chime_codec_dsd::{DsfDecoder, DffDecoder};
 use chime_dsp::DsdToPcmConverter;
 use chime_output::{AudioOutput, OutputConfig};
@@ -48,6 +48,10 @@ fn detect_and_decode(path: &str) -> Result<AudioData, ChimeError> {
         .to_lowercase();
 
     match ext.as_str() {
+        "aif" | "aiff" | "aifc" => {
+            let decoder = AiffDecoder::new();
+            decoder.decode(&mut reader)
+        }
         "wav" => {
             let decoder = WavDecoder::new();
             decoder.decode(&mut reader)
