@@ -162,60 +162,64 @@ impl DstDecoder {
         Ok(output)
     }
 
-    fn decode_channel(
+        fn decode_channel(
         &self,
         segment_data: &[u8],
         hdr: &DstFrameHeader,
         output: &mut [u8],
     ) -> Result<(), ChimeError> {
-        let _bit_reader = DstBitReader::new(segment_data);
-
-        // For each segment, decode the residuals using the arithmetic decoder
+        // Arithmetic decoder for the residual bitstream
         let mut arith = ArithmeticDecoder::new();
         let mut arith_reader = std::io::Cursor::new(segment_data);
         arith.init(&mut arith_reader)?;
 
-        // Prediction-based decoding
-        let _prev_samples: Vec<i16> = vec![0i16; 64]; // history buffer
+        // Determine the segment bit width
+        let seg_bits: u8 = hdr.filter_sets.iter()
+            .map(|fs| fs.segment_width_log2)
+            .max().unwrap_or(4);
+
+        // Pre-compute predictors per filter set (not recreated on every byte)
+        let cached_predictors: Vec<FirPredictor> = hdr.filter_sets.iter()
+            .map(|fs| {
+                let coef: Vec<i8> = fs.coefficients.iter().map(|&c| c as i8).collect();
+                FirPredictor::new(&coef, fs.quant_step_size as i32)
+            })
+            .collect();
+
+        // Ring buffer for prediction history (most recent decoded byte first)
+        let max_order = cached_predictors.iter().map(|p| p.order()).max().unwrap_or(8);
+        let mut history: Vec<u8> = vec![0u8; max_order];
+
+        // Track segment index to avoid redundant predictor lookups
+        let mut current_seg_idx = usize::MAX;
+        let mut current_predictor_idx = 0usize;
 
         for byte_idx in 0..self.frame_bytes {
-            // Determine which segment this byte belongs to
-            let seg_bits: u8 = hdr.filter_sets.iter()
-                .map(|fs| fs.segment_width_log2)
-                .max().unwrap_or(4);
             let seg_idx = (byte_idx * 8) >> seg_bits;
 
-            let filter_set_idx = if seg_idx < hdr.segment_mapping.len() {
-                hdr.segment_mapping[seg_idx]
-            } else {
-                0
-            };
+            if seg_idx != current_seg_idx {
+                current_seg_idx = seg_idx;
+                let filter_set_idx = if seg_idx < hdr.segment_mapping.len() {
+                    hdr.segment_mapping[seg_idx] as usize
+                } else {
+                    0
+                };
+                current_predictor_idx = filter_set_idx.min(cached_predictors.len().saturating_sub(1));
+            }
 
-            let filter_set = if (filter_set_idx as usize) < hdr.filter_sets.len() {
-                &hdr.filter_sets[filter_set_idx as usize]
-            } else {
-                &hdr.filter_sets[0]
-            };
+            // FIR prediction from history
+            let predicted = cached_predictors[current_predictor_idx].predict(&history);
 
-            // FIR prediction from previous samples
-            let predictor = FirPredictor::new(
-                &filter_set.coefficients.iter().map(|&c| c as i8).collect::<Vec<_>>(),
-                filter_set.quant_step_size as i32,
-            );
-
-            // Predict next byte from history
-            let history: Vec<u8> = (0..predictor.order())
-                .map(|i| {
-                    let idx = byte_idx.wrapping_sub(i + 1);
-                    if idx < output.len() { output[idx] } else { 0 }
-                })
-                .collect();
-            let predicted = predictor.predict(&history);
-
-            // Decode residual via arithmetic decoder
+            // Decode arithmetic-coded residual (context = predicted value)
             let residual = arith.decode_symbol(&mut arith_reader, predicted)?;
 
-            output[byte_idx] = ((predicted as i16).wrapping_add(residual as i16)) as u8;
+            output[byte_idx] = (predicted as i16).wrapping_add(residual as i16) as u8;
+
+            // Update ring buffer
+            if max_order > 1 {
+                history.copy_within(0..max_order - 1, 1);
+            }
+            history[0] = output[byte_idx];
         }
 
         Ok(())

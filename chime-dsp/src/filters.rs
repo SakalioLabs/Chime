@@ -1,10 +1,12 @@
-﻿//! FIR filters for DSD-to-PCM decimation.
+//! FIR filters for DSD-to-PCM decimation.
 //!
 //! PERFORMANCE OPTIMIZATIONS:
 //! - f32 coefficients and data (2x memory bandwidth vs f64, identical audio quality)
 //! - Padded input eliminates bounds checks in FIR inner loop
 //! - Pre-computed reversed coefficient array for cache-friendly access
 //! - Reusable buffers across stages to reduce heap allocation
+
+use crate::polyphase::PolyphaseFilter;
 
 /// A sinc-based decimation filter with Kaiser window.
 #[derive(Clone)]
@@ -109,22 +111,7 @@ impl SincFilter {
 
         for i in 0..output_len {
             let center = i * self.decimation + half;
-            let mut acc = 0.0f32;
-            // 4-wide unrolled for SIMD auto-vectorization
-            let mut k = 0;
-            let unrolled_end = self.length - (self.length % 4);
-            while k < unrolled_end {
-                let base = center + k;
-                acc += self.coefficients[k] * padded[base];
-                acc += self.coefficients[k + 1] * padded[base + 1];
-                acc += self.coefficients[k + 2] * padded[base + 2];
-                acc += self.coefficients[k + 3] * padded[base + 3];
-                k += 4;
-            }
-            while k < self.length {
-                acc += self.coefficients[k] * padded[center + k];
-                k += 1;
-            }
+            let acc = fir_inner(&self.coefficients, &padded, center, self.length);
             output.push(acc);
         }
     }
@@ -189,8 +176,140 @@ impl DecimationFilter {
             stage.filter.apply_into(scratch, output);
         }
     }
+
+    /// Apply multi-stage decimation using polyphase for the first stage.
+    /// More efficient for large decimation because it only computes needed output samples.
+    pub fn apply_polyphase(&self, input: &[f32]) -> Vec<f32> {
+        if self.stages.is_empty() {
+            return input.to_vec();
+        }
+        let first = &self.stages[0].filter;
+        let pf = PolyphaseFilter::from_prototype(&first.coefficients, first.decimation);
+        let mut buf = pf.apply(input);
+        for stage in &self.stages[1..] {
+            let next = stage.filter.apply(&buf);
+            buf = next;
+        }
+        buf
+    }
+
+    /// Polyphase decimation with fully reusable buffers (zero allocation after first call).
+    pub fn apply_polyphase_reuse(&self, input: &[f32], scratch: &mut Vec<f32>, output: &mut Vec<f32>) {
+        if self.stages.is_empty() {
+            output.clear();
+            output.extend_from_slice(input);
+            return;
+        }
+        let first = &self.stages[0].filter;
+        let pf = PolyphaseFilter::from_prototype(&first.coefficients, first.decimation);
+        pf.apply_into(input, output);
+        for stage in &self.stages[1..] {
+            scratch.clear();
+            std::mem::swap(scratch, output);
+            stage.filter.apply_into(scratch, output);
+        }
+    }
 }
 
+
+// ----- SIMD-accelerated FIR inner product -------------------------
+
+/// Scalar FIR inner product (4-wide unrolled).
+#[cfg(not(target_arch = "x86_64"))]
+#[inline(always)]
+fn fir_inner_scalar(coeffs: &[f32], input: &[f32], center: usize, length: usize) -> f32 {
+    let mut acc = 0.0f32;
+    let mut k = 0;
+    let end = length - (length % 4);
+    while k < end {
+        let base = center + k;
+        acc += coeffs[k] * input[base];
+        acc += coeffs[k + 1] * input[base + 1];
+        acc += coeffs[k + 2] * input[base + 2];
+        acc += coeffs[k + 3] * input[base + 3];
+        k += 4;
+    }
+    while k < length {
+        acc += coeffs[k] * input[center + k];
+        k += 1;
+    }
+    acc
+}
+
+/// SSE2-accelerated FIR inner product (4-wide).
+/// SSE2 is always available on x86_64.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "sse")]
+#[inline]
+unsafe fn fir_inner_sse2(coeffs: &[f32], input: &[f32], center: usize, length: usize) -> f32 {
+    use std::arch::x86_64::*;
+    let mut acc = _mm_setzero_ps();
+    let mut k = 0;
+    let sse_end = length - (length % 4);
+    while k < sse_end {
+        let base = center + k;
+        let c = unsafe { _mm_loadu_ps(&coeffs[k]) };
+        let s = unsafe { _mm_loadu_ps(&input[base]) };
+        acc = _mm_add_ps(acc, _mm_mul_ps(c, s));
+        k += 4;
+    }
+    // Horizontal sum of 4 floats in acc
+    let sum = _mm_add_ps(acc, _mm_movehl_ps(acc, acc));
+    let sum = _mm_add_ss(sum, _mm_shuffle_ps(sum, sum, 1));
+    let mut result = _mm_cvtss_f32(sum);
+    while k < length {
+        result += coeffs[k] * input[center + k];
+        k += 1;
+    }
+    result
+}
+
+/// AVX2-accelerated FIR inner product (8-wide).
+/// Requires runtime CPU detection.
+#[cfg(target_arch = "x86_64")]
+#[target_feature(enable = "avx2")]
+#[inline]
+unsafe fn fir_inner_avx2(coeffs: &[f32], input: &[f32], center: usize, length: usize) -> f32 {
+    use std::arch::x86_64::*;
+    let mut acc = _mm256_setzero_ps();
+    let mut k = 0;
+    let avx_end = length - (length % 8);
+    while k < avx_end {
+        let base = center + k;
+        let c = unsafe { _mm256_loadu_ps(&coeffs[k]) };
+        let s = unsafe { _mm256_loadu_ps(&input[base]) };
+        acc = _mm256_add_ps(acc, _mm256_mul_ps(c, s));
+        k += 8;
+    }
+    // Horizontal sum of 8 floats in acc
+    let hi = _mm256_extractf128_ps(acc, 1);
+    let lo = _mm256_castps256_ps128(acc);
+    let sum128 = _mm_add_ps(lo, hi);
+    let sum = _mm_add_ps(sum128, _mm_movehl_ps(sum128, sum128));
+    let sum = _mm_add_ss(sum, _mm_shuffle_ps(sum, sum, 1));
+    let mut result = _mm_cvtss_f32(sum);
+    while k < length {
+        result += coeffs[k] * input[center + k];
+        k += 1;
+    }
+    result
+}
+
+/// Dispatch to best available SIMD implementation.
+#[inline(always)]
+fn fir_inner(coeffs: &[f32], input: &[f32], center: usize, length: usize) -> f32 {
+    #[cfg(target_arch = "x86_64")]
+    {
+        if std::is_x86_feature_detected!("avx2") {
+            return unsafe { fir_inner_avx2(coeffs, input, center, length) };
+        }
+        return unsafe { fir_inner_sse2(coeffs, input, center, length) };
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    {
+        fir_inner_scalar(coeffs, input, center, length)
+    }
+}
 /// Modified Bessel function of the first kind, order 0.
 fn bessel_i0(x: f64) -> f64 {
     let mut sum = 1.0;

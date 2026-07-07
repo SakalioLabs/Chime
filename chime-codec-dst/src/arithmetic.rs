@@ -153,9 +153,9 @@ impl ArithmeticDecoder {
         }
 
         // Update probability model
-        self.contexts[ctx_idx].clone().update(symbol);
-        self.contexts[ctx_idx] = self.contexts[ctx_idx].clone();
-        self.contexts[ctx_idx].update(symbol);
+        
+        
+                self.contexts[ctx_idx].update(symbol);
 
         Ok(symbol as u8)
     }

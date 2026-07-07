@@ -1,4 +1,4 @@
-﻿//! SACD audio frame parser.
+//! SACD audio frame parser.
 //!
 //! Parses SACD audio frames from raw track data, identifying DST vs DSD frames.
 //! Bridges the gap between SacdIsoParser and the DST decoder.
@@ -116,22 +116,31 @@ pub fn process_audio_frames(
     channels: u16,
     dsd_rate: u32,
 ) -> Result<Vec<u8>, ChimeError> {
-    let _ch = channels as usize;
-    let dsd_samples_per_frame = dsd_rate as u64 / 75;
-    let frame_dsd_bytes = (dsd_samples_per_frame * channels as u64 / 8) as usize;
+    let ch = channels as usize;
+    let dsd_samples_per_frame = (dsd_rate as u64) / 75;
+    let bytes_per_ch_per_frame = (dsd_samples_per_frame / 8) as usize;
+    let frame_dsd_bytes = bytes_per_ch_per_frame * ch;
 
     let mut output = Vec::with_capacity(frames.len() * frame_dsd_bytes);
 
     for frame in frames {
         match frame.frame_type {
             SacdFrameType::Dsd => {
-                // Raw DSD: just pass through
+                // Raw DSD: pass through
                 output.extend_from_slice(&frame.data);
             }
             SacdFrameType::Dst => {
-                // DST: decompress using DST decoder
-                // For now, pass through as-is (full DST decode is research-grade)
-                output.extend_from_slice(&frame.data);
+                // DST: decompress using DST decoder, then interleave channels
+                let decoder = chime_codec_dst::DstDecoder::new(bytes_per_ch_per_frame, ch);
+                let channels_data = decoder.decode_frame(&frame.data)?;
+                // Interleave channels: [ch0_byte0, ch1_byte0, ch0_byte1, ch1_byte1, ...]
+                for byte_idx in 0..bytes_per_ch_per_frame {
+                    for ch_idx in 0..ch {
+                        if byte_idx < channels_data[ch_idx].len() {
+                            output.push(channels_data[ch_idx][byte_idx]);
+                        }
+                    }
+                }
             }
         }
     }
@@ -148,7 +157,7 @@ mod tests {
         // Mock raw DSD data: 2 frames at DSD64 stereo
         let dsd_samples_per_frame = 2822400 / 75; // 37632
         let raw_frame_size = dsd_samples_per_frame * 2 / 8; // 9408
-        let mut data = vec![0xA5u8; raw_frame_size * 2];
+        let data = vec![0xA5u8; raw_frame_size * 2];
 
         let frames = parse_audio_frames(&data, 2, 2822400).unwrap();
         assert_eq!(frames.len(), 2, "should parse 2 DSD frames");
