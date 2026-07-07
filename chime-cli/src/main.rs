@@ -7,7 +7,7 @@ use chime_core::codec::{AudioCodec, AudioData};
 use chime_core::buffer::AudioBuffer;
 use chime_core::ChimeError;
 use chime_codec_pcm::WavDecoder;
-use chime_codec_dsd::{DsfDecoder, DffDecoder, SacdIsoParser};
+use chime_codec_dsd::{DsfDecoder, DffDecoder};
 use chime_dsp::DsdToPcmConverter;
 use chime_output::{AudioOutput, OutputConfig};
 use std::fs::File;
