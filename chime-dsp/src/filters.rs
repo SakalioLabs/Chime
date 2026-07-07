@@ -10,7 +10,7 @@
 #[derive(Clone)]
 pub struct SincFilter {
     /// Filter coefficients (f32 for memory bandwidth).
-    coefficients: Vec<f32>,
+    pub coefficients: Vec<f32>,
     /// Decimation factor.
     pub decimation: usize,
     /// Filter length (number of taps).
@@ -75,7 +75,7 @@ impl SincFilter {
         let output_len = input.len() / self.decimation;
 
         // Zero-pad input to eliminate bounds checks in the hot loop
-        let padded_len = input.len() + self.length;
+        let padded_len = input.len() + self.length * 2;
         let mut padded = vec![0.0f32; padded_len];
         padded[half..half + input.len()].copy_from_slice(input);
 
@@ -103,7 +103,7 @@ impl SincFilter {
         let output_len = input.len() / self.decimation;
         output.reserve(output_len);
 
-        let padded_len = input.len() + self.length;
+        let padded_len = input.len() + self.length * 2;
         let mut padded = vec![0.0f32; padded_len];
         padded[half..half + input.len()].copy_from_slice(input);
 
