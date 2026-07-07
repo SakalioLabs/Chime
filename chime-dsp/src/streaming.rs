@@ -32,7 +32,7 @@ fn fast_tanh(x: f32) -> f32 {
 
 /// Streaming DSD-to-PCM converter state.
 pub struct StreamingDsdToPcm {
-    dsd_rate: u32,
+    _
     target_rate: u32,
     channels: u16,
     dec_filter: DecimationFilter,
@@ -47,11 +47,11 @@ pub struct StreamingDsdToPcm {
 }
 
 impl StreamingDsdToPcm {
-    pub fn new(dsd_rate: u32, target_rate: u32, channels: u16) -> Self {
-        let dec_filter = DecimationFilter::design(dsd_rate, target_rate);
+    pub fn new(_ target_rate: u32, channels: u16) -> Self {
+        let dec_filter = DecimationFilter::design( target_rate);
         let ch = channels as usize;
         StreamingDsdToPcm {
-            dsd_rate,
+            
             target_rate,
             channels,
             dec_filter,
@@ -87,11 +87,7 @@ impl StreamingDsdToPcm {
         }
 
         // Step 2: Decimation filter per channel
-        let pcm_frames = if self.channel_bufs[0].is_empty() {
-            0
-        } else {
-            self.channel_bufs[0].len() / self.dec_filter.stages_len()
-        };
+        
 
         let mut pcm_channels: Vec<Vec<f32>> = Vec::with_capacity(ch);
         for chan_data in &self.channel_bufs {
