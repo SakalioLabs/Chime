@@ -7,7 +7,7 @@
 use chime_core::codec::{AudioCodec, AudioData, CodecInfo, ReadSeek};
 use chime_core::{ChimeError, DsdInfo, StreamInfo};
 use byteorder::{LittleEndian, BigEndian, ReadBytesExt};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::SeekFrom;
 
 pub mod sacd_iso;
 pub mod audio_frame;
@@ -45,20 +45,20 @@ fn read_dsf_header(r: &mut dyn ReadSeek) -> Result<DsfHeader, ChimeError> {
         return Err(ChimeError::InvalidData("DSF missing fmt chunk".into()));
     }
     let _fmt_size = r.read_u64::<LittleEndian>()?;
-    let format_version = r.read_u32::<LittleEndian>()?;
-    let format_id = r.read_u32::<LittleEndian>()?;
-    let channel_type = r.read_u32::<LittleEndian>()?;
+    let _format_version = r.read_u32::<LittleEndian>()?;
+    let _format_id = r.read_u32::<LittleEndian>()?;
+    let _channel_type = r.read_u32::<LittleEndian>()?;
     let channel_num = r.read_u32::<LittleEndian>()?;
     let sampling_freq = r.read_u32::<LittleEndian>()?;
     let bits_per_sample = r.read_u32::<LittleEndian>()?;
     let sample_count = r.read_u64::<LittleEndian>()?;
-    let block_size = r.read_u32::<LittleEndian>()?;
+    let _block_size = r.read_u32::<LittleEndian>()?;
     let _reserved = r.read_u32::<LittleEndian>()?;
 
     // data chunk
-    let data_offset_pos = meta_offset + 52; // fmt chunk data starts after header
+    let _data_offset_pos = meta_offset + 52; // fmt chunk data starts after header
     // Read data chunk offset from the file structure
-    let mut cur = meta_offset + 12 + _fmt_size;
+    let cur = meta_offset + 12 + _fmt_size;
     r.seek(SeekFrom::Start(cur))?;
     let mut data_id = [0u8; 4];
     r.read_exact(&mut data_id)?;
@@ -78,6 +78,7 @@ fn read_dsf_header(r: &mut dyn ReadSeek) -> Result<DsfHeader, ChimeError> {
     })
 }
 
+#[allow(dead_code)]
 fn dsf_sampling_to_dsd_rate(freq: u32) -> u32 {
     // DSF stores the base frequency (2822400 for DSD64), but we multiply by bits_per_sample
     // Actually DSF sampling_freq is already in Hz per channel
@@ -123,7 +124,7 @@ fn read_dff_header(r: &mut dyn ReadSeek) -> Result<DffHeader, ChimeError> {
 
     // Scan chunks
     loop {
-        let pos = r.stream_position().unwrap_or(0);
+        let _pos = r.stream_position().unwrap_or(0);
         let mut chunk_id = [0u8; 4];
         match r.read_exact(&mut chunk_id) {
             Ok(()) => {}

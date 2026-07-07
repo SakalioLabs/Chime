@@ -141,7 +141,7 @@ impl SampleRateConverter {
         // Per-channel processing (interleaved: each channel independently)
         for c in 0..ch {
             // Extract this channel's samples
-            let mut chan_input: Vec<f32> = (0..input_frames)
+            let chan_input: Vec<f32> = (0..input_frames)
                 .map(|f| input[f * ch + c])
                 .collect();
 

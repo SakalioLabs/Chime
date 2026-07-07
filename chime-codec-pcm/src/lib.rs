@@ -10,7 +10,7 @@ use byteorder::{LittleEndian, ReadBytesExt};
 pub mod aiff;
 pub use aiff::AiffDecoder;
 
-use std::io::{Read, Seek, SeekFrom};
+use std::io::SeekFrom;
 
 /// WAV format codes
 const WAVE_FORMAT_PCM: u16 = 0x0001;

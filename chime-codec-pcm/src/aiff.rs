@@ -9,7 +9,7 @@ use chime_core::sample::SampleFormat;
 use chime_core::buffer::AudioBuffer;
 use chime_core::{ChimeError, PcmInfo, StreamInfo};
 use byteorder::{BigEndian, ReadBytesExt};
-use std::io::{Read, Seek, SeekFrom};
+use std::io::{Read, SeekFrom};
 
 pub struct AiffDecoder;
 

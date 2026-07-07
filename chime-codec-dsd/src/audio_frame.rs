@@ -116,7 +116,7 @@ pub fn process_audio_frames(
     channels: u16,
     dsd_rate: u32,
 ) -> Result<Vec<u8>, ChimeError> {
-    let ch = channels as usize;
+    let _ch = channels as usize;
     let dsd_samples_per_frame = dsd_rate as u64 / 75;
     let frame_dsd_bytes = (dsd_samples_per_frame * channels as u64 / 8) as usize;
 
