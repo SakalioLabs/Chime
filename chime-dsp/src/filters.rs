@@ -110,8 +110,20 @@ impl SincFilter {
         for i in 0..output_len {
             let center = i * self.decimation + half;
             let mut acc = 0.0f32;
-            for k in 0..self.length {
+            // 4-wide unrolled for SIMD auto-vectorization
+            let mut k = 0;
+            let unrolled_end = self.length - (self.length % 4);
+            while k < unrolled_end {
+                let base = center + k;
+                acc += self.coefficients[k] * padded[base];
+                acc += self.coefficients[k + 1] * padded[base + 1];
+                acc += self.coefficients[k + 2] * padded[base + 2];
+                acc += self.coefficients[k + 3] * padded[base + 3];
+                k += 4;
+            }
+            while k < self.length {
                 acc += self.coefficients[k] * padded[center + k];
+                k += 1;
             }
             output.push(acc);
         }
